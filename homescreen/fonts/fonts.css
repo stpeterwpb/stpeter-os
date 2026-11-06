@@ -1,0 +1,15 @@
+/* St. Peter OS typefaces, the same as stpeterwpb.org (all SIL Open Font License, see OFL-LICENSE.txt).
+   Cinzel: titles. EB Garamond: reading and interface. Amiri: Arabic. IBM Plex Sans Arabic: small Arabic labels. */
+@font-face{font-family:"Cinzel";font-weight:400;font-style:normal;font-display:swap;src:url(cinzel-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Cinzel";font-weight:500;font-style:normal;font-display:swap;src:url(cinzel-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:"Cinzel";font-weight:600;font-style:normal;font-display:swap;src:url(cinzel-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Cinzel";font-weight:700;font-style:normal;font-display:swap;src:url(cinzel-latin-700-normal.woff2) format("woff2")}
+@font-face{font-family:"EB Garamond";font-weight:400;font-style:normal;font-display:swap;src:url(eb-garamond-latin-400-normal.woff2) format("woff2")}
+@font-face{font-family:"EB Garamond";font-weight:400;font-style:italic;font-display:swap;src:url(eb-garamond-latin-400-italic.woff2) format("woff2")}
+@font-face{font-family:"EB Garamond";font-weight:500;font-style:normal;font-display:swap;src:url(eb-garamond-latin-500-normal.woff2) format("woff2")}
+@font-face{font-family:"EB Garamond";font-weight:600;font-style:normal;font-display:swap;src:url(eb-garamond-latin-600-normal.woff2) format("woff2")}
+@font-face{font-family:"Amiri";font-weight:400;font-style:normal;font-display:swap;src:url(amiri-arabic-400-normal.woff2) format("woff2")}
+@font-face{font-family:"Amiri";font-weight:700;font-style:normal;font-display:swap;src:url(amiri-arabic-700-normal.woff2) format("woff2")}
+@font-face{font-family:"IBM Plex Sans Arabic";font-weight:400;font-style:normal;font-display:swap;src:url(ibm-plex-sans-arabic-arabic-400-normal.woff2) format("woff2")}
+@font-face{font-family:"IBM Plex Sans Arabic";font-weight:500;font-style:normal;font-display:swap;src:url(ibm-plex-sans-arabic-arabic-500-normal.woff2) format("woff2")}
+@font-face{font-family:"IBM Plex Sans Arabic";font-weight:700;font-style:normal;font-display:swap;src:url(ibm-plex-sans-arabic-arabic-700-normal.woff2) format("woff2")}

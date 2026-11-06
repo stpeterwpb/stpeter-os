@@ -1,0 +1,117 @@
+#!/bin/bash
+# St. Peter OS updates, from the GitHub repository named in /etc/stpeter-update.conf.
+#
+#   stpeter-update check    look for a newer version and install it (runs at every start-up, in the background)
+#   stpeter-update boot     early at start-up: undo an update whose home screen never came up
+#   stpeter-update confirm VERSION   the home screen of VERSION loaded fine (sent by the home screen)
+#
+# How an update works:
+#   latest.json (+ latest.json.sig, signed with the St. Peter key) says the newest version and its bundle.
+#   The bundle is the whole source folder; installing it = running ITS build.sh (in update mode).
+#   The previous source folder is kept, so an update can be undone by running the old build.sh again.
+#   Room name, AirPlay code, Wi-Fi and Windows are not touched.
+set -u
+CONF=/etc/stpeter-update.conf
+STATE=/var/lib/stpeter-update          # current/ previous/ new/ pending bad
+RUN=/run/stpeter-update                # status.json
+HOME_PING=/tmp/stpeter-home-ping        # touched by the helper while the home screen is showing
+KEYRING=/usr/share/stpeter/update-key.gpg
+INSTALL_DIR=/opt/stpeter
+UPDATE_REPO=""
+[ -r "$CONF" ] && . "$CONF"
+mkdir -p "$STATE" "$RUN"; chmod 755 "$RUN"
+
+installed(){ cat "$INSTALL_DIR/VERSION" 2>/dev/null || echo 0; }
+status(){   # state [version]  -> /run/stpeter-update/status.json (read by the home screen)
+  printf '{"state":"%s","version":"%s","installed":"%s","time":%s}\n' "$1" "${2:-}" "$(installed)" "$(date +%s)" \
+    > "$RUN/status.json.tmp" && mv "$RUN/status.json.tmp" "$RUN/status.json"
+}
+log(){ echo "$(date '+%F %T') $*" >> "$STATE/update.log"; }
+
+run_build(){   # source-folder -> installs it (keeps the room's own files)
+  local src="$1" room=/tmp/stpeter-room.js
+  cp -p "$INSTALL_DIR/homescreen/room.js" "$room" 2>/dev/null
+  ( cd "$src" && IMAGE_MODE=1 UPDATE_MODE=1 bash ./build.sh ) >> "$STATE/update.log" 2>&1
+  local rc=$?
+  [ -f "$room" ] && install -m 644 "$room" "$INSTALL_DIR/homescreen/room.js"
+  return $rc
+}
+
+session_restart_if_idle(){
+  # Only restart the screen if someone is on the home screen (it pings every few seconds)
+  # and Windows isn't open; otherwise the update shows up at the next start.
+  local ping; ping=$(stat -c %Y "$HOME_PING" 2>/dev/null || echo 0)
+  [ $(( $(date +%s) - ping )) -le 20 ] || return 0
+  pgrep -f 'qemu-system.*St Peter Windows' >/dev/null && return 0
+  status restarting "$(installed)"; sleep 6
+  loginctl terminate-user stpeter 2>/dev/null; sleep 2
+  systemctl restart getty@tty1.service
+}
+
+case "${1:-}" in
+check)
+  [ -n "$UPDATE_REPO" ] || { status off; exit 0; }
+  [ -f "$STATE/pending" ] && { status ok; exit 0; }   # waiting for the last update to prove itself
+  status checking
+  # wait for the network (Wi-Fi can take a minute after power-on)
+  online=no
+  for i in $(seq 1 60); do curl -fsS -m 5 -o /dev/null "${UPDATE_URL:-https://github.com}" 2>/dev/null && { online=yes; break; }; sleep 3; done
+  [ "$online" = yes ] || { status offline; exit 0; }
+  base="${UPDATE_URL:-https://github.com/$UPDATE_REPO/releases}"
+  tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+  code=$(curl -sSL -m 30 -o "$tmp/latest.json" -w '%{http_code}' "$base/latest/download/latest.json" 2>/dev/null)
+  [ "$code" = 404 ] && { status ok; exit 0; }       # nothing published yet
+  if [ "$code" != 200 ] || ! curl -fsSL -m 30 -o "$tmp/latest.json.sig" "$base/latest/download/latest.json.sig"; then
+    status offline; exit 0
+  fi
+  if ! gpgv --keyring "$KEYRING" "$tmp/latest.json.sig" "$tmp/latest.json" >/dev/null 2>&1; then
+    log "latest.json: bad signature, ignored"; status error; exit 1
+  fi
+  read -r ver bundle sha < <(python3 -c '
+import json,sys,re
+m=json.load(open(sys.argv[1]))
+v,b,s=str(m["version"]),m["bundle"],m["sha256"]
+assert re.fullmatch(r"\d{1,12}",v) and re.fullmatch(r"[A-Za-z0-9._-]+",b) and re.fullmatch(r"[0-9a-f]{64}",s)
+print(v,b,s)' "$tmp/latest.json" 2>/dev/null) || { log "latest.json unreadable"; status error; exit 1; }
+  if [ "$ver" -le "$(installed)" ] || grep -qx "$ver" "$STATE/bad" 2>/dev/null; then status ok; exit 0; fi
+
+  status downloading "$ver"; log "updating $(installed) -> $ver"
+  curl -fsSL -m 900 -o "$tmp/$bundle" "$base/download/v$ver/$bundle" || { status offline; exit 0; }
+  echo "$sha  $tmp/$bundle" | sha256sum -c --status || { log "bundle checksum wrong"; status error; exit 1; }
+  rm -rf "$STATE/new"; mkdir -p "$STATE/new"
+  tar -xJf "$tmp/$bundle" -C "$STATE/new" --no-same-owner || { status error; exit 1; }
+  [ -f "$STATE/new/build.sh" ] && [ "$(cat "$STATE/new/VERSION" 2>/dev/null)" = "$ver" ] || { log "bundle incomplete"; status error; exit 1; }
+
+  status installing "$ver"
+  if run_build "$STATE/new"; then
+    rm -rf "$STATE/previous"; [ -d "$STATE/current" ] && mv "$STATE/current" "$STATE/previous"
+    mv "$STATE/new" "$STATE/current"
+    echo "$ver 0" > "$STATE/pending"
+    log "installed $ver"; status updated "$ver"
+    session_restart_if_idle
+  else
+    log "build.sh of $ver failed; putting the previous version back"
+    echo "$ver" >> "$STATE/bad"
+    [ -d "$STATE/current" ] && run_build "$STATE/current"
+    rm -rf "$STATE/new"; status error
+  fi
+  ;;
+boot)
+  [ -f "$STATE/pending" ] || exit 0
+  read -r ver tries < "$STATE/pending"
+  tries=$(( ${tries:-0} + 1 ))
+  if [ "$tries" -le 2 ]; then echo "$ver $tries" > "$STATE/pending"; exit 0; fi
+  # The home screen didn't come up after this update twice: go back.
+  log "version $ver never reached the home screen; going back"
+  echo "$ver" >> "$STATE/bad"; rm -f "$STATE/pending"
+  if [ -d "$STATE/previous" ]; then
+    run_build "$STATE/previous" && { rm -rf "$STATE/current"; mv "$STATE/previous" "$STATE/current"; }
+  fi
+  ;;
+confirm)
+  [ -f "$STATE/pending" ] || exit 0
+  read -r ver _ < "$STATE/pending"
+  if [ "${2:-}" = "$ver" ]; then rm -f "$STATE/pending"; log "home screen OK on $ver"; fi
+  ;;
+*) echo "usage: stpeter-update check|boot|confirm" >&2; exit 2 ;;
+esac

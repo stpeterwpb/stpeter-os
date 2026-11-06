@@ -1,0 +1,40 @@
+# Publishes a St. Peter OS update whenever VERSION changes on the main branch.
+# The TVs check github.com/<this repo>/releases/latest at every start-up.
+# Needs the repository secret STPETER_SIGNING_KEY (the private key, ASCII-armored).
+name: Publish update
+on:
+  push:
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the bundle
+        run: |
+          VER=$(tr -d '[:space:]' < VERSION)
+          [[ "$VER" =~ ^[0-9]{1,12}$ ]] || { echo "VERSION must be a number"; exit 1; }
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          B="stpeter-os-$VER.tar.xz"
+          tar --exclude=.git --exclude=.github --exclude='image/*.img*' -cJf "/tmp/$B" .
+          SHA=$(sha256sum "/tmp/$B" | cut -d' ' -f1)
+          printf '{"version": %s, "bundle": "%s", "sha256": "%s"}\n' "$VER" "$B" "$SHA" > /tmp/latest.json
+          cat /tmp/latest.json
+      - name: Sign
+        env:
+          KEY: ${{ secrets.STPETER_SIGNING_KEY }}
+        run: |
+          export GNUPGHOME=$(mktemp -d)
+          printf '%s\n' "$KEY" | gpg --batch --import
+          gpg --batch --detach-sign -o /tmp/latest.json.sig /tmp/latest.json
+          gpgv --keyring ./update/key.gpg /tmp/latest.json.sig /tmp/latest.json
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VER" "/tmp/stpeter-os-$VER.tar.xz" /tmp/latest.json /tmp/latest.json.sig \
+            --title "St. Peter OS $VER" --notes "$(git log -1 --pretty=%B)" --latest

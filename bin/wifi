@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""St. Peter OS: Wi-Fi for the home screen's Wi-Fi menu.
+
+The TV account may run this one script as root (through /etc/sudoers.d/stpeter); it only
+looks at and joins Wi-Fi networks through NetworkManager. Output is JSON.
+
+  wifi status    {"wifi": bool, "wired": bool, "connected": bool, "ssid": str}
+  wifi scan      {"networks": [{"ssid", "signal", "secure", "active"}, ...]}
+  wifi connect   reads {"ssid": ..., "password": ...} as JSON on stdin
+                 {"ok": bool, "error": "password" | "failed" | "bad-input"}
+"""
+import json, subprocess, sys
+
+NMCLI = "nmcli"
+
+
+def nm(*args, timeout=40):
+    try:
+        p = subprocess.run([NMCLI, *args], capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout, p.stderr
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return 99, "", str(e)
+
+
+def fields(line):
+    """Split one line of `nmcli -t` output (':' separated, with \\: and \\\\ escapes)."""
+    out, cur, i = [], "", 0
+    while i < len(line):
+        c = line[i]
+        if c == "\\" and i + 1 < len(line):
+            cur += line[i + 1]; i += 2; continue
+        if c == ":":
+            out.append(cur); cur = ""
+        else:
+            cur += c
+        i += 1
+    out.append(cur)
+    return out
+
+
+def status():
+    code, out, _ = nm("-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device", "status", timeout=10)
+    wifi = wired = connected = False
+    if code == 0:
+        for line in out.splitlines():
+            f = fields(line)
+            if len(f) < 3:
+                continue
+            kind, state = f[1], f[2]
+            up = state.startswith("connected") and "connecting" not in state
+            if kind == "wifi":
+                wifi = True
+                connected = connected or up
+            elif kind == "ethernet" and up:
+                wired = connected = True
+    ssid = ""
+    if wifi:
+        code, out, _ = nm("-t", "-f", "ACTIVE,SSID", "device", "wifi", "list", "--rescan", "no", timeout=10)
+        for line in out.splitlines():
+            f = fields(line)
+            if len(f) >= 2 and f[0] == "yes":
+                ssid = f[1]; break
+    return {"wifi": wifi, "wired": wired, "connected": connected, "ssid": ssid}
+
+
+def scan():
+    code, out, _ = nm("-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes", timeout=25)
+    if code != 0:   # e.g. "scanning not allowed" right after another scan: use the last results
+        code, out, _ = nm("-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "no", timeout=10)
+    best = {}
+    for line in out.splitlines():
+        f = fields(line)
+        if len(f) < 4 or not f[1].strip():
+            continue                       # hidden networks have no name; skip them
+        active = f[0].strip() == "*"
+        try:
+            signal = int(f[2])
+        except ValueError:
+            signal = 0
+        sec = f[3].strip()
+        n = {"ssid": f[1], "signal": signal, "secure": sec not in ("", "--"), "active": active}
+        old = best.get(n["ssid"])
+        if not old or n["active"] or (signal > old["signal"] and not old["active"]):
+            if old and old["active"]:
+                n["active"] = True
+            best[n["ssid"]] = n
+    nets = sorted(best.values(), key=lambda n: (not n["active"], -n["signal"], n["ssid"].lower()))
+    return {"networks": nets}
+
+
+def profiles_for(ssid):
+    code, out, _ = nm("-t", "-f", "NAME,UUID,TYPE", "connection", "show", timeout=10)
+    found = []
+    for line in out.splitlines():
+        f = fields(line)
+        if len(f) >= 3 and f[2] == "802-11-wireless":
+            c2, o2, _ = nm("-g", "802-11-wireless.ssid", "connection", "show", f[1], timeout=10)
+            if c2 == 0 and o2.strip() == ssid:
+                found.append(f[1])
+    return found
+
+
+def connect():
+    try:
+        req = json.loads(sys.stdin.read() or "{}")
+        ssid, password = str(req.get("ssid", "")), str(req.get("password", ""))
+    except (ValueError, AttributeError):
+        return {"ok": False, "error": "bad-input"}
+    if not ssid or len(ssid.encode()) > 32 or len(password) > 64 or "\n" in ssid + password:
+        return {"ok": False, "error": "bad-input"}
+    # Start fresh for this network, so an old wrong password can't get in the way
+    for uuid in profiles_for(ssid):
+        nm("connection", "delete", "uuid", uuid, timeout=15)
+    args = ["--wait", "40", "device", "wifi", "connect", ssid]
+    if password:
+        args += ["password", password]
+    code, out, err = nm(*args, timeout=50)
+    if code == 0:
+        return {"ok": True}
+    for uuid in profiles_for(ssid):       # don't keep a profile that doesn't work
+        nm("connection", "delete", "uuid", uuid, timeout=15)
+    text = (out + err).lower()
+    wrong_pw = any(s in text for s in ("secrets were required", "no secrets", "password", "802-1x", "psk"))
+    return {"ok": False, "error": "password" if wrong_pw else "failed"}
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    result = {"status": status, "scan": scan, "connect": connect}.get(cmd)
+    if not result:
+        print(__doc__, file=sys.stderr); sys.exit(2)
+    print(json.dumps(result()))

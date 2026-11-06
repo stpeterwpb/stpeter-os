@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""St. Peter OS: USB flash drives for the whiteboard's "Import PowerPoint".
+
+The TV account may run this one script as root (through /etc/sudoers.d/stpeter).
+Drives are only ever mounted READ-ONLY, under /media/usb, so nothing on them can be changed.
+
+  usb mount     mount every USB drive partition that isn't mounted yet
+                -> {"drives": [{"name", "label", "path"}]}
+  usb eject     unmount them all, so the drive can be pulled out safely -> {"ok": bool}
+"""
+import json, os, re, subprocess, sys
+
+BASE = "/media/usb"
+FS_OK = {"vfat", "exfat", "ntfs", "ntfs3", "ext2", "ext3", "ext4", "hfsplus", "iso9660", "udf"}
+
+
+def run(*a, timeout=20):
+    try:
+        p = subprocess.run(list(a), capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return 99, ""
+
+
+def kiosk_ids():
+    try:
+        import pwd
+        pw = pwd.getpwnam("stpeter")
+        return pw.pw_uid, pw.pw_gid
+    except KeyError:
+        return 1000, 1000
+
+
+def usb_partitions():
+    code, out = run("lsblk", "-J", "-p", "-o", "NAME,TYPE,TRAN,RM,FSTYPE,LABEL,MOUNTPOINT,SIZE")
+    if code != 0:
+        return []
+    found = []
+
+    def walk(dev, usb):
+        usb = usb or dev.get("tran") == "usb"
+        if dev.get("type") in ("part", "disk") and usb and (dev.get("fstype") or "") in FS_OK:
+            found.append(dev)
+        for ch in dev.get("children") or []:
+            walk(ch, usb)
+
+    for d in json.loads(out).get("blockdevices", []):
+        walk(d, False)
+    return found
+
+
+def mounted_here():
+    res = []
+    with open("/proc/mounts") as f:
+        for line in f:
+            dev, mnt = line.split()[:2]
+            mnt = mnt.replace("\\040", " ")
+            if mnt.startswith(BASE + "/"):
+                res.append((dev, mnt))
+    return res
+
+
+def mount_all():
+    os.makedirs(BASE, exist_ok=True)
+    uid, gid = kiosk_ids()
+    have = dict(mounted_here())
+    for p in usb_partitions():
+        dev = p["name"]
+        if dev in have or p.get("mountpoint"):
+            continue
+        label = re.sub(r"[^\w .-]+", "", p.get("label") or "").strip() or "USB " + os.path.basename(dev)
+        mnt = os.path.join(BASE, label)
+        n = 2
+        while os.path.ismount(mnt) or (os.path.exists(mnt) and os.listdir(mnt)):
+            mnt = os.path.join(BASE, f"{label} {n}"); n += 1
+        os.makedirs(mnt, exist_ok=True)
+        fs = p["fstype"]
+        opts = "ro,nosuid,nodev,noexec"
+        if fs in ("vfat", "exfat", "ntfs", "ntfs3", "hfsplus", "iso9660", "udf"):
+            opts += f",uid={uid},gid={gid}"
+        if fs in ("vfat", "exfat", "ntfs3", "ntfs"):
+            opts += ",fmask=0133,dmask=0022"
+        if fs == "vfat":
+            opts += ",utf8"
+        types = ["ntfs3", "ntfs"] if fs in ("ntfs", "ntfs3") else [fs]
+        for t in types:
+            code, _ = run("mount", "-t", t, "-o", opts, dev, mnt)
+            if code == 0:
+                break
+        else:
+            try:
+                os.rmdir(mnt)
+            except OSError:
+                pass
+    drives = []
+    for dev, mnt in mounted_here():
+        drives.append({"name": dev, "label": os.path.basename(mnt), "path": mnt})
+    return {"drives": drives}
+
+
+def eject():
+    ok = True
+    for dev, mnt in mounted_here():
+        code, _ = run("umount", mnt)
+        if code != 0:
+            code, _ = run("umount", "-l", mnt)
+        ok = ok and code == 0
+        try:
+            os.rmdir(mnt)
+        except OSError:
+            pass
+    run("sync")
+    return {"ok": ok}
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    fn = {"mount": mount_all, "eject": eject}.get(cmd)
+    if not fn:
+        print(__doc__, file=sys.stderr); sys.exit(2)
+    print(json.dumps(fn()))

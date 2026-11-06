@@ -1,0 +1,4 @@
+image/*.img
+image/*.img.xz*
+image/work/
+*.part[0-9]*

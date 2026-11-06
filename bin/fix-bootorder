@@ -1,0 +1,11 @@
+#!/bin/bash
+# Runs at every startup: makes sure St. Peter OS (the "debian" boot entry) stays
+# first in the boot order. Windows updates sometimes move Windows to the front.
+set -u
+list=$(efibootmgr 2>/dev/null) || exit 0
+deb=$(echo "$list" | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\)\*\{0,1\} *debian.*/\1/Ip' | head -n1)
+order=$(echo "$list" | sed -n 's/^BootOrder: *//p')
+[ -n "$deb" ] && [ -n "$order" ] || exit 0
+case "$order" in "$deb"*) exit 0 ;; esac
+rest=$(echo "$order" | tr ',' '\n' | grep -vix "$deb" | paste -sd, -)
+efibootmgr -o "${deb}${rest:+,$rest}" >/dev/null

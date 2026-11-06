@@ -1,0 +1,313 @@
+#!/bin/bash
+# St. Peter OS — automatic installer. Runs by itself when a PC starts from the St. Peter USB stick.
+#
+# It picks the disk to install on with strict rules, so Windows is never touched:
+#   * a disk that already has St. Peter OS on it  -> reinstall (keeps that room's name and code)
+#   * otherwise, the one completely EMPTY disk    -> install there (Windows on the other disk stays)
+#   * otherwise, if the PC has exactly ONE internal disk -> offer to replace it
+#   * otherwise (several disks) -> a menu to pick the disk
+#   A disk that isn't empty is only erased after the person types ERASE.
+# Then it copies the system, names the room (from the counter on the stick), puts St. Peter OS
+# first in the PC's boot order, and restarts once the stick is pulled out.
+set -u
+
+USB_LABEL=STPETER          # the stick's settings partition (FAT, readable on any computer)
+LIVE_LABEL=STPETER-LIVE    # the stick's system partition
+SETTINGS_NAME="St Peter settings.txt"
+LOG_NAME="Installed rooms.txt"
+# The stick's system is read-only, so everything we mount goes under /run (in memory)
+TARGET=/run/stpeter/target
+OLD=/run/stpeter/old
+SRCMNT=/run/stpeter/src
+SETTINGS=/run/stpeter/usb
+
+TTY=/dev/tty1
+exec </dev/tty1 >/dev/tty1 2>&1
+echo 1 > /proc/sys/kernel/sysrq 2>/dev/null
+setfont /usr/share/consolefonts/Lat15-TerminusBold32x16.psf.gz 2>/dev/null || true
+dmesg -n 1 2>/dev/null
+B=$'\e[1m'; G=$'\e[1;33m'; R=$'\e[1;31m'; OK=$'\e[1;32m'; N=$'\e[0m'
+
+screen(){ clear; printf '\n  %sSt. Peter OS setup%s\n\n' "$G" "$N"; }
+say(){ printf '  %s\n' "$*"; }
+wait_forever(){ while true; do read -rs -t 3600 -n 1 _ || true; done; }
+
+stop_here(){   # stop without changing anything
+  screen
+  printf '  %s%s%s\n\n' "$R" "$1" "$N"
+  shift; for l in "$@"; do say "$l"; done
+  echo; say "Nothing on this PC was changed."
+  say "Take the USB stick out and press the power button to turn the PC off."
+  wait_forever
+}
+fail(){        # something broke halfway
+  if mountpoint -q "$SETTINGS" 2>/dev/null; then
+    { date; echo "Setup didn't finish: $1"; tail -n 40 /run/stpeter/rsync.err 2>/dev/null; dmesg | tail -n 60; } \
+      > "$SETTINGS/setup-error.txt" 2>/dev/null; sync
+  fi
+  screen
+  printf '  %sSetup didn'"'"'t finish: %s%s\n\n' "$R" "$1" "$N"
+  if [ "${mode:-}" = replace ]; then say "Restart from the USB stick to try again."
+  else say "Windows was not touched. Restart from the USB stick to try again."; fi
+  say "If it keeps happening, send the file setup-error.txt from the USB stick (or a photo of this screen)."
+  wait_forever
+}
+
+# ---------------------------------------------------------------- the stick itself
+screen; say "Getting ready…"
+for i in $(seq 1 20); do [ -e "/dev/disk/by-label/$LIVE_LABEL" ] && break; sleep 0.5; done
+live_part=$(findmnt -no SOURCE /)
+usb_disk=$(lsblk -no PKNAME "$live_part" 2>/dev/null | head -n1)
+[ -n "$usb_disk" ] || fail "couldn't find the USB stick"
+settings_part=$(lsblk -lnpo NAME,LABEL "/dev/$usb_disk" | awk -v l="$USB_LABEL" '$2==l{print $1; exit}')
+mkdir -p "$SETTINGS"
+mount -t vfat -o rw "$settings_part" "$SETTINGS" 2>/dev/null || fail "couldn't open the stick's settings"
+
+NAME_PREFIX="St Peter - "; AIRPLAY_CODE=auto
+if [ -f "$SETTINGS/$SETTINGS_NAME" ]; then
+  while IFS='=' read -r k v; do
+    v="${v%$'\r'}"; v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"
+    case "$k" in
+      NAME_PREFIX)  NAME_PREFIX="$v" ;;
+      AIRPLAY_CODE) AIRPLAY_CODE="$v" ;;
+    esac
+  done < <(tr -d '\r' < "$SETTINGS/$SETTINGS_NAME" | grep -E '^[A-Z_]+=')
+fi
+# "St Peter -" in the settings file means "St Peter - " (with a space before the class name)
+[[ -n "$NAME_PREFIX" && "$NAME_PREFIX" != *" " ]] && NAME_PREFIX="$NAME_PREFIX "
+
+# ---------------------------------------------------------------- choose the disk
+empty=(); stpeter=(); others=(); internal=()
+while read -r name type ro rm tran size; do
+  [ "$type" = disk ] || continue
+  [ "$name" = "$usb_disk" ] && continue
+  case "$name" in loop*|zram*|sr*|ram*|fd*|mmcblk*boot*) continue ;; esac
+  [ "$ro" = 1 ] && continue
+  [ "$tran" = usb ] || [ "$rm" = 1 ] && { others+=("$name"); continue; }
+  [ "$size" -lt $((30*1000*1000*1000)) ] && { others+=("$name"); continue; }
+  labels=$(lsblk -lnpo LABEL,PARTLABEL "/dev/$name" | tr '\n' ' ')
+  parts=$(lsblk -lnpo TYPE "/dev/$name" | grep -c part)
+  sig=$(wipefs -n "/dev/$name" 2>/dev/null | tail -n +2)
+  if [[ " $labels " == *" STPETER-ROOT "* ]]; then stpeter+=("$name")
+  elif [ "$parts" -eq 0 ] && [ -z "$sig" ]; then empty+=("$name")
+  else others+=("$name"); internal+=("$name"); fi
+done < <(lsblk -dnbo NAME,TYPE,RO,RM,TRAN,SIZE | awk '{ if (NF==5) {print $1,$2,$3,$4,"-",$5} else print }')
+
+describe(){     # what's on a disk, in plain words
+  local d=/dev/$1 info
+  info=$(lsblk -lnpo FSTYPE,PARTLABEL,LABEL "$d" | tr '\n' ' ')
+  if [ "$(lsblk -lnpo TYPE "$d" | grep -c part)" -eq 0 ] && [ -z "$(wipefs -n "$d" 2>/dev/null | tail -n +2)" ]; then echo "empty"
+  elif grep -qiE 'ntfs|Basic data partition|Microsoft|BitLocker' <<<"$info"; then echo "has Windows on it"
+  elif grep -qiE 'ext4|ext3|ext2|btrfs|xfs|swap' <<<"$info"; then echo "has Linux on it"
+  else echo "has files on it"; fi
+}
+disk_label(){ local d=/dev/$1; printf '%s, %s GB  (%s)' "$(lsblk -dno MODEL "$d" | sed 's/ *$//')" \
+  "$(( $(lsblk -dnbo SIZE "$d") / 1000000000 ))" "$(describe "$1")"; }
+
+if [ ${#stpeter[@]} -eq 1 ]; then disk=${stpeter[0]}; mode=reinstall
+elif [ ${#stpeter[@]} -gt 1 ]; then
+  stop_here "This PC has more than one St. Peter OS disk." "Setup can't tell which one to use."
+elif [ ${#empty[@]} -eq 1 ]; then disk=${empty[0]}; mode=new
+elif [ ${#empty[@]} -eq 0 ] && [ ${#internal[@]} -eq 1 ]; then disk=${internal[0]}; mode=replace; only_one=yes
+elif [ ${#empty[@]} -eq 0 ] && [ ${#internal[@]} -eq 0 ]; then
+  stop_here "This PC has no drive St. Peter OS can go on." \
+    "It needs an internal drive of 32 GB or more (USB drives can't be used)."
+else
+  # Several drives: let the person pick one.
+  choices=("${empty[@]}" "${internal[@]}")
+  [ ${#choices[@]} -gt 9 ] && choices=("${choices[@]:0:9}")
+  while true; do
+    screen
+    say "${G}This PC has more than one drive.${N} Which one should St. Peter OS go on?"
+    echo
+    for i in "${!choices[@]}"; do say "  ${B}$((i+1))${N}   $(disk_label "${choices[$i]}")"; done
+    echo
+    say "Press the ${B}number${N} of the drive, or ${B}Esc${N} to stop."
+    IFS= read -rs -n 1 key
+    case "$key" in
+      [1-9]) [ "$key" -le ${#choices[@]} ] && { disk=${choices[$((key-1))]}; break; } ;;
+      $'\e') read -rs -t 0.1 -n 3 _ && continue; stop_here "Stopped." ;;
+    esac
+  done
+  if [ "$(describe "$disk")" = empty ]; then mode=new; else mode=replace; fi
+fi
+dev=/dev/$disk
+model=$(lsblk -dno MODEL "$dev" | sed 's/ *$//'); gb=$(( $(lsblk -dnbo SIZE "$dev") / 1000000000 ))
+
+# Replacing what's on a drive: only after typing ERASE.
+if [ "$mode" = replace ]; then
+  what=$(describe "$disk")
+  while true; do
+    screen
+    if [ "${only_one:-}" = yes ]; then printf '  %sThis PC has only one drive:  %s, %s GB%s\n\n' "$R" "$model" "$gb" "$N"
+    else printf '  %sSt. Peter OS will go on:  %s, %s GB%s\n\n' "$R" "$model" "$gb" "$N"; fi
+    if [ "$what" = "has Windows on it" ]; then
+      say "It has Windows on it. To set up St. Peter OS, ${B}everything on this"
+      say "drive will be erased${N}, including Windows and any files saved in it."
+    else
+      say "To set up St. Peter OS, ${B}everything on this drive will be erased${N}."
+    fi
+    [ "${only_one:-}" = yes ] || say "The PC's other drives are not touched."
+    echo
+    say "Windows 11 can be put back later, ${B}inside${N} St. Peter OS, from the"
+    say "Desktop button on the TV. If this PC came with Windows, it uses the"
+    say "PC's own Windows key and activates by itself."
+    echo
+    say "To continue, type  ${B}ERASE${N}  and press Enter."
+    say "To stop without changing anything, just press Enter."
+    echo
+    printf '  > '
+    IFS= read -r answer || answer=""
+    answer=$(printf '%s' "$answer" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')
+    [ "$answer" = ERASE ] && break
+    [ -z "$answer" ] && stop_here "Stopped."
+  done
+fi
+
+# ---------------------------------------------------------------- name the room
+PIN=""; OLD_CLASS=""; HOST=""
+if [ "$mode" = reinstall ]; then
+  mkdir -p "$OLD"
+  oldroot=$(lsblk -lnpo NAME,LABEL "$dev" | awk '$2=="STPETER-ROOT"{print $1; exit}')
+  if mount -o ro "$oldroot" "$OLD" 2>/dev/null; then
+    TV_NAME=""; AIRPLAY_PIN=""
+    [ -r "$OLD/etc/stpeter.conf" ] && . "$OLD/etc/stpeter.conf"
+    PIN="$AIRPLAY_PIN"
+    OLD_CLASS="${TV_NAME#"$NAME_PREFIX"}"; OLD_CLASS="${OLD_CLASS#St. Peter - }"; OLD_CLASS="${OLD_CLASS#St Peter - }"
+    umount "$OLD"
+  fi
+fi
+if [ "$mode" = new ] || [ -z "$OLD_CLASS" ]; then
+  case "$AIRPLAY_CODE" in
+    no|none|off) PIN="" ;;
+    [0-9][0-9][0-9][0-9]) PIN="$AIRPLAY_CODE" ;;
+    *) [ -n "$PIN" ] || PIN=$(shuf -i 1000-9999 -n 1) ;;
+  esac
+fi
+
+# Ask for the class name (what teachers see under Screen Mirroring)
+while true; do
+  screen
+  if [ "$mode" = new ]; then say "St. Peter OS will go on the empty drive:  ${B}$model, $gb GB${N}"
+    say "Windows and its files are not touched."
+  elif [ "$mode" = replace ]; then say "St. Peter OS will replace everything on:  ${B}$model, $gb GB${N}"
+  else say "This PC already has St. Peter OS. It will be reinstalled:  ${B}$model, $gb GB${N}"
+    say "Windows and its files are not touched."; fi
+  echo
+  say "${G}Type the name of this classroom${N} and press Enter."
+  say "For example:  Pre-K and K"
+  [ -n "$OLD_CLASS" ] && say "(Just press Enter to keep:  $OLD_CLASS)"
+  echo
+  printf '  %s' "$NAME_PREFIX"
+  IFS= read -r -e CLASS || CLASS=""
+  # keep it simple and safe: letters, numbers, spaces and - & ' . , / + ( ) #
+  CLASS=$(printf '%s' "$CLASS" | tr -cd "[:alnum:] &'.,/+()#-" | sed 's/  */ /g; s/^ //; s/ $//' | cut -c1-40)
+  [ -z "$CLASS" ] && CLASS="$OLD_CLASS"
+  [ -n "$CLASS" ] || continue
+  ROOM_NAME="$NAME_PREFIX$CLASS"
+  HOST="stpeter-$(printf '%s' "$CLASS" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//; s/-$//' | cut -c1-40)"
+  [ "$HOST" = "stpeter-" ] && HOST="stpeter-tv"
+
+  screen
+  say "This classroom will be:  ${B}$ROOM_NAME${N}"
+  [ -n "$PIN" ] && say "AirPlay code:            ${B}$PIN${N}"
+  echo
+  say "Press ${B}Enter${N} to start setup."
+  say "Press ${B}Backspace${N} to change the name, or ${B}Esc${N} to stop."
+  while true; do
+    IFS= read -rs -n 1 key
+    case "$key" in
+      "") break 2 ;;                               # Enter: go
+      $'\x7f'|$'\b') continue 2 ;;                 # Backspace: type the name again
+      $'\e') read -rs -t 0.1 -n 3 _ && continue  # an arrow key, not Esc: ignore
+              stop_here "Stopped." ;;
+    esac
+  done
+done
+
+# ---------------------------------------------------------------- partition + copy
+step(){ screen; say "Setting up ${B}$ROOM_NAME${N}"; echo; say "$1"; }
+step "Preparing the drive…"
+for part in $(lsblk -lnpo NAME,TYPE "$dev" | awk '$2=="part"{print $1}'); do
+  umount "$part" 2>/dev/null; wipefs -aq "$part" 2>/dev/null
+done
+wipefs -aq "$dev" || fail "couldn't prepare the drive"
+sgdisk -Z "$dev" >/dev/null 2>&1
+sgdisk -n1:0:+512M -t1:ef00 -c1:STPETER-EFI -n2:0:0 -t2:8304 -c2:STPETER-ROOT "$dev" >/dev/null \
+  || fail "couldn't partition the drive"
+partprobe "$dev" 2>/dev/null; udevadm settle
+p1=$(lsblk -lnpo NAME,TYPE "$dev" | awk '$2=="part"{print $1}' | sed -n 1p)
+p2=$(lsblk -lnpo NAME,TYPE "$dev" | awk '$2=="part"{print $1}' | sed -n 2p)
+[ -n "$p1" ] && [ -n "$p2" ] || fail "the new partitions didn't show up"
+mkfs.vfat -F 32 -n STPETER-EFI "$p1" >/dev/null || fail "couldn't format the boot partition"
+mkfs.ext4 -q -F -L STPETER-ROOT "$p2" || fail "couldn't format the drive"
+
+mkdir -p "$TARGET" "$SRCMNT"
+mount "$p2" "$TARGET" || fail "couldn't open the new drive"
+mount --bind / "$SRCMNT"
+step "Copying St. Peter OS…  (about 5 minutes)"
+echo
+# A USB stick can hiccup on a big copy; rsync then simply carries on where it stopped.
+rc=1
+for attempt in 1 2 3; do
+  [ "$attempt" -gt 1 ] && printf '\r  Trying again (%s of 3)…            \n' "$attempt" && sleep 3
+  rsync -aHAX --numeric-ids --info=progress2 --no-inc-recursive \
+    --exclude=/opt/stpeter/installer/ --exclude=/etc/systemd/system/stpeter-installer.target \
+    --exclude=/etc/systemd/system/stpeter-installer.service \
+    "$SRCMNT/" "$TARGET/" 2>>/run/stpeter/rsync.err | \
+    while IFS=' ' read -r -d $'\r' _ pct _; do [[ "$pct" == *% ]] && printf '\r  %s copied   ' "$pct"; done
+  rc=${PIPESTATUS[0]}
+  [ "$rc" = 0 ] || [ "$rc" = 24 ] && break
+  echo "attempt $attempt: rsync exit $rc" >> /run/stpeter/rsync.err
+done
+[ "$rc" = 0 ] || [ "$rc" = 24 ] || fail "copying stopped (error $rc)"
+[ -x "$TARGET/usr/bin/python3" ] || fail "copying didn't finish"
+umount "$SRCMNT"
+
+# ---------------------------------------------------------------- make it this PC's own
+step "Finishing…"
+mkdir -p "$TARGET/boot/efi"
+mount "$p1" "$TARGET/boot/efi" || fail "couldn't open the boot partition"
+cat > "$TARGET/etc/fstab" <<EOF
+# St. Peter OS
+UUID=$(blkid -s UUID -o value "$p2")  /          ext4  errors=remount-ro  0 1
+UUID=$(blkid -s UUID -o value "$p1")  /boot/efi  vfat  umask=0077         0 1
+EOF
+: > "$TARGET/etc/machine-id"
+rm -f "$TARGET/var/lib/dbus/machine-id"
+"$TARGET/opt/stpeter/bin/set-room" "$TARGET" "$ROOM_NAME" "$PIN" "$HOST" >/dev/null || fail "couldn't name the room"
+
+for d in dev dev/pts proc sys run; do mount --bind "/$d" "$TARGET/$d"; done
+[ -d /sys/firmware/efi/efivars ] && mount -t efivarfs efivarfs "$TARGET/sys/firmware/efi/efivars" 2>/dev/null
+win_left=no
+for o in "${internal[@]}"; do [ "$o" != "$disk" ] && [ "$(describe "$o")" = "has Windows on it" ] && win_left=yes; done
+if [ "$mode" = replace ] && [ "$win_left" = no ]; then   # no Windows left on this PC: drop its start-up entry
+  for id in $(efibootmgr 2>/dev/null | sed -n 's/^Boot\([0-9A-Fa-f]\{4\}\)\*\{0,1\} *Windows Boot Manager.*/\1/p'); do
+    efibootmgr -q -b "$id" -B >/dev/null 2>&1
+  done
+fi
+chroot "$TARGET" grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=debian \
+  --uefi-secure-boot --force-extra-removable --recheck >/dev/null 2>&1 || fail "couldn't install the start-up files"
+chroot "$TARGET" update-grub >/dev/null 2>&1 || fail "couldn't write the start-up menu"
+chroot "$TARGET" /opt/stpeter/bin/fix-bootorder >/dev/null 2>&1 || true
+windows=no; chroot "$TARGET" /opt/stpeter/bin/boot-windows --check && windows=yes
+umount "$TARGET/sys/firmware/efi/efivars" 2>/dev/null
+for d in run sys proc dev/pts dev; do umount "$TARGET/$d"; done
+umount "$TARGET/boot/efi" && umount "$TARGET" || fail "couldn't close the new drive"
+
+# ---------------------------------------------------------------- write down what was done
+printf '%s   %s   AirPlay code: %s   (%s, %s GB drive)\r\n' "$(date +%F)" "$ROOM_NAME" "${PIN:-none}" "$model" "$gb" \
+  >> "$SETTINGS/$LOG_NAME"
+sync; umount "$SETTINGS"; sync
+
+# ---------------------------------------------------------------- done
+screen
+printf '  %sDone!%s\n\n' "$OK" "$N"
+say "This classroom is:  ${B}$ROOM_NAME${N}"
+[ -n "$PIN" ] && say "AirPlay code:       ${B}$PIN${N}   (also written on the USB stick)"
+[ "$windows" = no ] && { echo; say "Windows can be set up later from the Desktop button on the TV."; }
+echo
+printf '  %sTake the USB stick out now.%s The PC will restart into St. Peter OS by itself.\n' "$G" "$N"
+# Wait for the stick to be pulled out. Only shell built-ins from here on: the stick holds this program.
+while [ -e "/sys/block/$usb_disk" ]; do read -rs -t 1 -n 1 _ || true; done
+echo s > /proc/sysrq-trigger; echo u > /proc/sysrq-trigger; echo b > /proc/sysrq-trigger

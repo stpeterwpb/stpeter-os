@@ -1,0 +1,5 @@
+[Unit]
+Description=St. Peter OS USB installer
+Requires=basic.target stpeter-installer.service
+After=basic.target stpeter-installer.service
+AllowIsolate=yes

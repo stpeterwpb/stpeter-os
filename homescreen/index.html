@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>St. Peter Seal of the Martyrs</title>
+<link rel="stylesheet" href="fonts/fonts.css">
+<script src="config.js"></script>
+<script src="room.js" onerror="void 0"></script>
+<script src="version.js" onerror="void 0"></script>
+<script src="church-calendar.js"></script>
+<style>
+  /* St. Peter OS, in the colors and type of stpeterwpb.org.
+     Kept deliberately simple: a few big buttons, one line of date, nothing else unless it's needed. */
+  :root{
+    --red:#5C0F1A; --red-deep:#3D0A12; --red-soft:#6E1A26;
+    --gold:#C49838; --gold-dim:#C4983866;
+    --parchment:#F5F0E6; --parchment-dim:#D9CDB8; --ink:#1A1410;
+    --display:"Cinzel",Georgia,serif; --serif:"EB Garamond",Georgia,serif;
+    --ar:"Amiri","EB Garamond",serif; --ar-ui:"EB Garamond","IBM Plex Sans Arabic",sans-serif;
+  }
+  html{font-size:calc(100vw / 120)}           /* 16px on a 1920-wide TV */
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:linear-gradient(180deg,var(--red) 0%,var(--red-deep) 100%);color:var(--parchment);
+    font:1.5rem/1.4 var(--serif);overflow:hidden;user-select:none;cursor:default;font-variant-numeric:lining-nums}
+  html[lang=ar] body{font-family:var(--ar-ui)}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  :focus{outline:none}
+  svg{display:block}
+  img.mark{object-fit:contain}
+
+  /* ---------- home ---------- */
+  #home{position:absolute;inset:0;padding:4rem 6rem 3rem;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;gap:1.8rem}
+  .mark{width:6rem;height:6rem;color:var(--gold);flex:none}
+  .church{font:600 2.3rem/1.2 var(--display);letter-spacing:.02em}
+  html[lang=ar] .church{font:700 2.4rem/1.4 var(--ar)}
+  .today{color:var(--parchment-dim);font-size:1.5rem;margin-top:.2rem}
+  .today b{color:var(--gold);font-weight:500}
+  .clock{margin-inline-start:auto;font:600 3.4rem/1 var(--display);font-variant-numeric:lining-nums tabular-nums}
+  html[lang=ar] .clock{font-family:var(--ar)}
+
+  .tiles{flex:1;display:flex;align-items:center;justify-content:center;gap:2.4rem}
+  .tile{width:20rem;height:20rem;border-radius:1.6rem;background:var(--red-soft);display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:1.6rem;transition:background .15s,color .15s,transform .15s,box-shadow .15s}
+  .tile svg{width:6rem;height:6rem;color:var(--gold)}
+  /* five or six buttons still fit on one row */
+  .tiles[data-n="5"]{gap:2rem} .tiles[data-n="5"] .tile{width:18.4rem;height:18.4rem}
+  .tiles[data-n="6"]{gap:1.6rem} .tiles[data-n="6"] .tile{width:15.8rem;height:15.8rem}
+  .tiles[data-n="6"] .tile svg{width:5rem;height:5rem} .tiles[data-n="6"] .tile b{font-size:1.6rem}
+  .tile b{font:600 1.9rem/1.2 var(--display);letter-spacing:.02em;text-align:center;padding:0 1rem}
+  html[lang=ar] .tile b{font:700 2.1rem/1.3 var(--ar)}
+  .tiles.many{gap:2rem} .tiles.many .tile{width:17.5rem;height:18.5rem} .tiles.many .tile b{font-size:1.7rem}
+  .tile:focus,.tile:hover{background:var(--parchment);color:var(--ink);transform:scale(1.06);box-shadow:0 0 0 .35rem var(--gold),0 1.5rem 3rem #0006}
+  .tile:focus svg,.tile:hover svg{color:var(--red)}
+
+  footer{display:flex;align-items:center;justify-content:space-between}
+  .pill.wifi{display:flex;align-items:center;gap:.7rem}
+  .pill.wifi svg{width:1.6rem;height:1.6rem}
+  .pill.wifi.off{border-color:var(--gold);color:var(--gold)}
+  .pill.wifi.off:focus,.pill.wifi.off:hover{color:var(--ink)}
+  .pill{padding:.6rem 1.4rem;border-radius:999rem;border:1.5px solid var(--gold-dim);color:var(--parchment);font-size:1.35rem;
+    transition:background .15s,color .15s}
+  .pill:focus,.pill:hover{background:var(--parchment);color:var(--ink);border-color:var(--parchment)}
+  .pill.ar{font-family:var(--ar-ui)}
+
+  /* ---------- start screens ---------- */
+  .stage{position:fixed;inset:0;z-index:10;display:none;flex-direction:column;align-items:center;justify-content:center;gap:2.6rem;
+    background:linear-gradient(180deg,var(--red) 0%,var(--red-deep) 100%);text-align:center}
+  .stage.show{display:flex}
+  .stage .mark{width:10rem;height:10rem}
+  .stage .church{font-size:2.2rem}
+  .stage h1{font:600 3.6rem/1.2 var(--display)}
+  html[lang=ar] .stage h1{font:700 3.8rem/1.4 var(--ar)}
+  .choices{display:flex;gap:3rem;margin-top:1rem}
+  .choice{width:28rem;height:16rem;border-radius:1.6rem;background:var(--red-soft);font:600 3.6rem var(--display);
+    transition:background .15s,color .15s,transform .15s,box-shadow .15s}
+  .choice.arb{font:700 4rem var(--ar)}
+  .choice:focus,.choice:hover{background:var(--parchment);color:var(--ink);transform:scale(1.04);box-shadow:0 0 0 .35rem var(--gold)}
+  .pickhead{font:600 2.8rem/1.4 var(--display)}
+  .pickhead span{display:block;font:700 2.8rem/1.4 var(--ar)}
+
+  .stage .clock{position:absolute;inset-inline-end:4rem;top:3.4rem;font-size:2.6rem}
+
+  /* ---------- pop-ups ---------- */
+  .overlay{position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;background:#1F060Ad9}
+  .overlay.show{display:flex}
+  .sheet{background:var(--parchment);color:var(--ink);width:60rem;max-width:90vw;padding:3.6rem 4rem 3rem;border-radius:1.6rem;
+    text-align:center;display:flex;flex-direction:column;gap:1.4rem;box-shadow:0 2rem 5rem #0008}
+  .sheet h2{font:600 2.6rem/1.2 var(--display);color:var(--red)}
+  html[lang=ar] .sheet h2{font:700 2.8rem/1.4 var(--ar)}
+  .sheet p{font-size:1.7rem;color:#3A3026;line-height:1.45}
+  .sheet ol{text-align:start;font-size:1.75rem;line-height:1.6;margin:0 auto;padding-inline-start:2.4rem;max-width:46rem}
+  .sheet .name{color:var(--red);font-weight:600}
+  .sheet .row{display:flex;gap:1rem;justify-content:center;margin-top:.8rem}
+  .sheet .btn{min-width:15rem}
+  .sheet .btn:focus,.sheet .btn:hover{box-shadow:0 0 0 .3rem var(--red)}
+  .sheet .btn.ghost{color:var(--ink);border-color:#1A141055}
+  .sheet .small{font-size:1.35rem;color:#7D5C1E}
+  .sheet .warn{color:var(--red);font-size:1.5rem;min-height:2rem}
+  [hidden]{display:none!important}
+  .media{display:flex;flex-direction:column;gap:.8rem;margin:.4rem 0}
+  .medium{display:flex;align-items:center;gap:1.4rem;padding:1.1rem 1.6rem;border-radius:1.2rem;background:#E9E0CF;text-align:start;font-size:1.6rem}
+  .medium.on,.medium:focus,.medium:hover{background:var(--red);color:var(--parchment)}
+  .medium svg{width:3.2rem;height:3.2rem;flex:none}
+  .medium span{display:block;font-size:1.3rem;opacity:.8}
+  .wait{display:flex;align-items:center;justify-content:center;gap:1rem;color:#7D5C1E;font-size:1.5rem}
+  .wait::before{content:"";width:1.8rem;height:1.8rem;border-radius:50%;border:.25rem solid #5C0F1A33;border-top-color:var(--red);animation:spin .9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .progress{height:1.2rem;border-radius:1rem;background:#E9E0CF;overflow:hidden}
+  .progress i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--red),#A0283A);border-radius:1rem;transition:width .6s}
+
+  /* ---------- Wi-Fi ---------- */
+  .nets{display:flex;flex-direction:column;gap:.5rem;max-height:46vh;overflow:hidden auto;padding:.4rem;text-align:start}
+  .net{display:flex;align-items:center;gap:1.2rem;padding:.9rem 1.4rem;border-radius:1rem;background:#E9E0CF;font-size:1.7rem}
+  .net:focus,.net:hover{background:var(--red);color:var(--parchment)}
+  .net .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .net .tag{font-size:1.3rem;opacity:.75}
+  .net svg{width:1.8rem;height:1.8rem;flex:none}
+  .pw{display:flex;gap:1rem;justify-content:center;align-items:center}
+  .pw input{font:inherit;font-size:1.9rem;width:32rem;padding:.8rem 1.2rem;border-radius:.8rem;border:2px solid #1A141055;background:#fff;color:var(--ink);user-select:text}
+  .pw input:focus{border-color:var(--red);box-shadow:0 0 0 .25rem #5C0F1A44}
+  .sheet .ok{color:#2E6B2E;font-size:1.6rem;min-height:2rem}
+
+  /* ---------- updates ---------- */
+  .upd{position:fixed;inset-inline:0;bottom:2.2rem;margin:auto;width:max-content;max-width:90vw;z-index:50;
+       padding:.8rem 1.8rem;border-radius:999rem;background:var(--parchment);color:var(--ink);font-size:1.5rem;
+       box-shadow:0 .6rem 2rem #0006;border:2px solid var(--gold)}
+  .about{margin-top:1.6rem;font-size:1.25rem;opacity:.8;display:flex;gap:1rem;align-items:center;justify-content:center;flex-wrap:wrap}
+  .about .btn{font-size:1.25rem;padding:.4rem 1.1rem}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+  #apPin b{display:inline-block;font:600 1.8em/1 var(--serif);letter-spacing:.12em;margin-inline-start:.3em;vertical-align:middle}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="cross" viewBox="0 0 100 100">
+    <g fill="currentColor">
+      <rect x="44" y="14" width="12" height="72" rx="2"/><rect x="14" y="44" width="72" height="12" rx="2"/>
+      <circle cx="50" cy="9" r="5.5"/><circle cx="42.5" cy="14" r="5.5"/><circle cx="57.5" cy="14" r="5.5"/>
+      <circle cx="50" cy="91" r="5.5"/><circle cx="42.5" cy="86" r="5.5"/><circle cx="57.5" cy="86" r="5.5"/>
+      <circle cx="9" cy="50" r="5.5"/><circle cx="14" cy="42.5" r="5.5"/><circle cx="14" cy="57.5" r="5.5"/>
+      <circle cx="91" cy="50" r="5.5"/><circle cx="86" cy="42.5" r="5.5"/><circle cx="86" cy="57.5" r="5.5"/>
+    </g>
+    <circle cx="50" cy="50" r="16" fill="none" stroke="currentColor" stroke-width="4"/>
+  </symbol>
+</svg>
+<template id="crossTpl"><svg class="mark"><use href="#cross"/></svg></template>
+
+<!-- ======================= HOME ======================= -->
+<div id="home">
+  <header>
+    <img class="mark" src="img/st-peter-logo.png" alt="" onerror="this.replaceWith(crossTpl.content.cloneNode(true))">
+    <div>
+      <div class="church" id="church"></div>
+      <div class="today" id="today"></div>
+    </div>
+    <div class="clock" id="clock"></div>
+  </header>
+
+  <nav class="tiles" id="tiles"></nav>
+
+  <footer>
+    <button class="pill wifi" id="wifiBtn"></button>
+    <button class="pill" id="langBtn"></button>
+  </footer>
+</div>
+
+<!-- ======================= LANGUAGE ======================= -->
+<div class="stage" id="picker">
+  <img class="mark" src="img/st-peter-logo.png" alt="" onerror="this.replaceWith(crossTpl.content.cloneNode(true))">
+  <div class="pickhead">Choose your language<span>اختار اللغة</span></div>
+  <div class="choices">
+    <button class="choice" data-lang="en">English</button>
+    <button class="choice arb" data-lang="ar">العربية</button>
+  </div>
+  <div class="clock clockMirror"></div>
+</div>
+
+<!-- ======================= POP-UPS ======================= -->
+<div class="overlay" id="ovAirplay"><div class="sheet">
+  <h2 data-t="apTitle"></h2>
+  <ol><li data-t="apStep1"></li><li data-t="apStep2"></li><li><span data-t="apStep3"></span> <span class="name tvname"></span></li></ol>
+  <p class="small" id="apPin"></p>
+  <div class="row"><button class="btn" data-close data-t="ok"></button></div>
+</div></div>
+
+<div class="overlay" id="ovReader"><div class="sheet">
+  <h2 data-t="crTitle"></h2>
+  <p data-t="crLead"></p>
+  <div class="row"><button class="btn" id="crWin" data-t="crWin"></button><button class="btn ghost" data-close data-t="back"></button></div>
+</div></div>
+
+<div class="overlay" id="ovWindows"><div class="sheet">
+  <h2 id="winTitle"></h2>
+  <p id="winLead"></p>
+  <div class="media" id="winMedia" hidden></div>
+  <div class="wait" id="winWait" hidden></div>
+  <div class="progress" id="winBar" hidden><i id="winBarFill"></i></div>
+  <p class="warn" id="winMsg" role="alert"></p>
+  <div class="row"><button class="btn" id="winGo"></button><button class="btn ghost" id="winCancel"></button></div>
+  <p class="small" id="winBack"></p>
+</div></div>
+
+<div class="overlay" id="ovWifi"><div class="sheet">
+  <h2 data-t="wfTitle"></h2>
+  <div id="wfPick">
+    <p id="wfState"></p>
+    <div class="nets" id="wfList"></div>
+    <div class="row"><button class="btn" id="wfScan" data-t="wfScan"></button><button class="btn ghost" data-close data-t="back"></button></div>
+  </div>
+  <div id="wfPass" hidden>
+    <p id="wfPassLead"></p>
+    <div class="pw"><input id="wfPw" type="password" autocomplete="off" spellcheck="false"><button class="btn ghost" id="wfShow" data-t="wfShow"></button></div>
+    <div class="row"><button class="btn" id="wfGo" data-t="wfConnect"></button><button class="btn ghost" id="wfBack" data-t="back"></button></div>
+  </div>
+  <p class="warn" id="wfMsg" role="alert"></p>
+  <div class="about"><span id="upVer"></span><button class="btn ghost" id="upCheck" data-t="upCheck"></button><span id="upMsg"></span></div>
+</div></div>
+
+<div class="upd" id="updToast" hidden role="status"></div>
+
+<script>
+(function(){
+  const C = Object.assign({}, window.STPETER || {}, window.STPETER_ROOM || {});
+  const TV = C.tvName || 'St. Peter TV';
+  const HELPER = 'http://127.0.0.1:8765';
+  const $ = id => document.getElementById(id);
+
+  // ------------------------------------------------------------------ words
+  const T = {
+    en: {
+      langBtn: 'العربية', fast: 'Fasting day',
+      apTitle: 'Show your phone on this TV',
+      apStep1: 'Connect to the church Wi-Fi', apStep2: 'Open Control Center and tap Screen Mirroring', apStep3: 'Choose',
+      apPin: 'The first time, your phone asks for a code. The code is',
+      crTitle: 'Coptic Reader', crLead: 'Coptic Reader opens in Windows.',
+      crWin: 'Open in Windows',
+      winTitle: 'Open the desktop', winLead: 'The TV restarts into the Windows desktop. It takes about a minute.',
+      winGo: 'Open the desktop', winWait: 'Restarting…',
+      winMissing: "Windows isn't installed on this TV.", winHelper: 'Something went wrong. Turn the TV box off and on, then try again.',
+      winBack: 'To come back to St. Peter, just restart the PC (Start → Power → Restart).',
+      vmLead: 'Windows opens right here, in a few seconds.', vmStarting: 'Starting Windows…',
+      vmBack: 'To come back, press F12 or click Back to St. Peter on the Windows taskbar.',
+      setTitle: 'Set up Windows', setLead: "Windows isn't set up on this TV yet. Insert the Windows installation media: a USB stick with the Windows 11 installer, or a USB stick with a Windows 11 .iso file.",
+      setLooking: 'Looking for the Windows installer…', setFound: 'Found. Choose it and press Install Windows.',
+      setGo: 'Install Windows', setNote: 'Takes about 30 to 45 minutes. Keep the TV on; you can keep using it meanwhile.',
+      setUsb: 'Windows installer', setOn: 'on USB stick “{d}”', setNoKvm: "This PC can't run Windows inside St. Peter OS. Turn on virtualization (VT-x) in the PC's BIOS.",
+      instTitle: 'Setting up Windows', instCopy: 'Copying the installer from the USB stick…', instInstall: 'Installing Windows… (about 25 minutes)',
+      instConfigure: 'Setting up St. Peter’s Windows…', instFinish: 'Almost done…', instUnplug: 'You can take the USB stick out now.',
+      instKeep: 'You can close this and keep using the TV.', instDone: 'Windows is ready!',
+      errEfisys: "This USB stick can't be used. Please use a USB stick with the Windows 11 .iso file on it.",
+      errFailed: "Windows setup didn't finish. Check the USB stick and press Install Windows to try again.",
+      close: 'Close',
+      wfTitle: 'Wi-Fi', wfScan: 'Search again', wfShow: 'Show', wfHide: 'Hide', wfConnect: 'Connect',
+      wfSearching: 'Searching for networks…', wfNone: 'No networks found. Try Search again.',
+      wfPick: 'Choose a network:', wfOn: 'Connected to {ssid}.', wfWired: 'Connected with a cable.', wfOff: 'Not connected.',
+      wfPassFor: 'Password for {ssid}', wfConnecting: 'Connecting…', wfBad: "That password didn't work. Try again.",
+      wfFail: "Couldn't connect to {ssid}. Try again.", wfNoCard: 'This TV has no Wi-Fi.', wfHelper: 'Wi-Fi settings are not available right now.',
+      wfOpen: 'open', wfBtnOff: 'Connect to Wi-Fi', wfBtnWired: 'Cable',
+      upVer: 'St. Peter OS version {v}', upCheck: 'Check for updates', upChecking: 'Checking…', upOk: 'Up to date.',
+      upOffline: "Can't reach the internet.", upErr: "The update didn't work; the TV keeps the version it has.",
+      upGetting: 'Updating St. Peter OS… you can keep using the TV.', upRestart: 'Update installed. The screen restarts in a moment…',
+      upDone: 'Update installed. It shows up the next time the TV starts.',
+      ok: 'OK', back: 'Back', cancel: 'Cancel', locale: 'en-US'
+    },
+    ar: {
+      langBtn: 'English', fast: 'يوم صوم',
+      apTitle: 'اعرض موبايلك على التلفزيون ده',
+      apStep1: 'اتوصل بالواي فاي بتاع الكنيسة', apStep2: 'افتح مركز التحكم ودوس على Screen Mirroring', apStep3: 'اختار',
+      apPin: 'أول مرة، الموبايل هيطلب منك رقم. الرقم هو',
+      crTitle: 'القارئ القبطي', crLead: 'القارئ القبطي بيفتح على الويندوز.',
+      crWin: 'افتحه على الويندوز',
+      winTitle: 'افتح سطح المكتب', winLead: 'الجهاز هيعمل ريستارت على سطح مكتب الويندوز. هياخد حوالي دقيقة.',
+      winGo: 'افتح سطح المكتب', winWait: 'بيعمل ريستارت…',
+      winMissing: 'مفيش ويندوز متسطب على الجهاز ده.', winHelper: 'حصلت مشكلة. اقفل الجهاز وافتحه تاني وجرب تاني.',
+      winBack: 'عشان ترجع، اعمل ريستارت للجهاز: من Start اختار Power وبعدين Restart.',
+      vmLead: 'الويندوز هيفتح هنا في ثواني.', vmStarting: 'الويندوز بيفتح…',
+      vmBack: 'عشان ترجع، دوس F12 أو دوس على Back to St. Peter في شريط الويندوز.',
+      setTitle: 'تسطيب الويندوز', setLead: 'الويندوز لسه متسطبش على التلفزيون ده. حط وسيلة تسطيب الويندوز: فلاشة عليها Windows 11، أو فلاشة عليها ملف Windows 11 بامتداد iso.',
+      setLooking: 'بيدوّر على تسطيب الويندوز…', setFound: 'لقيناه. اختاره ودوس سطّب الويندوز.',
+      setGo: 'سطّب الويندوز', setNote: 'بياخد من ٣٠ لـ ٤٥ دقيقة. سيب التلفزيون شغال، وتقدر تستخدمه في نفس الوقت.',
+      setUsb: 'تسطيب الويندوز', setOn: 'على فلاشة «{d}»', setNoKvm: 'الجهاز ده مينفعش يشغل الويندوز جوه St. Peter OS. شغّل الـ virtualization (VT-x) من الـ BIOS.',
+      instTitle: 'بيسطّب الويندوز', instCopy: 'بينسخ التسطيب من الفلاشة…', instInstall: 'بيسطّب الويندوز… (حوالي ٢٥ دقيقة)',
+      instConfigure: 'بيجهز ويندوز سانت بيتر…', instFinish: 'قربنا نخلص…', instUnplug: 'تقدر تشيل الفلاشة دلوقتي.',
+      instKeep: 'تقدر تقفل ده وتكمل استخدام التلفزيون.', instDone: 'الويندوز جاهز!',
+      errEfisys: 'الفلاشة دي مينفعش تستخدم. استخدم فلاشة عليها ملف Windows 11 بامتداد iso.',
+      errFailed: 'تسطيب الويندوز مخلصش. اتأكد من الفلاشة ودوس سطّب الويندوز تاني.',
+      close: 'اقفل',
+      wfTitle: 'الواي فاي', wfScan: 'دوّر تاني', wfShow: 'اظهر', wfHide: 'اخفي', wfConnect: 'اتصل',
+      wfSearching: 'بيدوّر على الشبكات…', wfNone: 'مفيش شبكات. دوس دوّر تاني.',
+      wfPick: 'اختار شبكة:', wfOn: 'متوصل بـ {ssid}.', wfWired: 'متوصل بالكابل.', wfOff: 'مش متوصل.',
+      wfPassFor: 'باسورد {ssid}', wfConnecting: 'بيتوصل…', wfBad: 'الباسورد غلط. جرب تاني.',
+      wfFail: 'معرفناش نتوصل بـ {ssid}. جرب تاني.', wfNoCard: 'الجهاز ده مفيهوش واي فاي.', wfHelper: 'إعدادات الواي فاي مش متاحة دلوقتي.',
+      wfOpen: 'مفتوحة', wfBtnOff: 'وصّل الواي فاي', wfBtnWired: 'كابل',
+      upVer: 'سانت بيتر OS إصدار {v}', upCheck: 'دوّر على تحديثات', upChecking: 'بيدوّر…', upOk: 'كله محدّث.',
+      upOffline: 'مفيش إنترنت.', upErr: 'التحديث ما نفعش؛ التليفزيون هيفضل على النسخة اللي عليه.',
+      upGetting: 'بيحدّث سانت بيتر OS… تقدر تكمّل استخدام التليفزيون.', upRestart: 'التحديث اتسطّب. الشاشة هتعيد التشغيل حالاً…',
+      upDone: 'التحديث اتسطّب. هيظهر أول ما التليفزيون يشتغل تاني.',
+      ok: 'تمام', back: 'رجوع', cancel: 'إلغاء', locale: 'ar-EG'
+    }
+  };
+  const fill = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '');
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+
+  // ------------------------------------------------------------------ state
+  let lang = (() => { try { return localStorage.getItem('stpeter-lang') === 'ar' ? 'ar' : 'en'; } catch (e) { return 'en'; } })();
+  const L = () => T[lang];
+
+  const ICONS = {
+    airplay:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 17H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-2"/><path d="M12 14l5 6H7z" fill="currentColor"/></svg>',
+    hymns:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/></svg>',
+    reader:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5.5C4.5 4 8 4 12 6c4-2 7.5-2 10-.5V19c-2.5-1.5-6-1.5-10 .5-4-2-7.5-2-10-.5z"/><path d="M12 6v13.5M7 8.5v4M5 10.5h4"/></svg>',
+    desktop:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="3.5" width="19" height="13" rx="1.5"/><path d="M8 20.5h8M12 16.5v4"/><rect x="5" y="6" width="7" height="5" rx=".6"/><path d="M5 7.6h7"/><rect x="13.5" y="9" width="5.5" height="5" rx=".6"/><path d="M13.5 10.6h5.5"/></svg>',
+    board:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="19" height="13" rx="1.2"/><path d="M8 20.5l2-4M16 20.5l-2-4M6 12.5c1.5-3 3-4 4-2.5s2 2 3.5-.5 2.5-2 4.5 0"/></svg>',
+    play:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M10 9l5 3-5 3z" fill="currentColor"/></svg>',
+    church:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2v4M10 4h4M6 21V11l6-5 6 5v10M3 21h18M10 21v-4a2 2 0 0 1 4 0v4"/></svg>',
+    live:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="2.4" fill="currentColor"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/></svg>'
+  };
+
+  // ------------------------------------------------------------------ tiles
+  $('tiles').dataset.n = Math.min((C.tiles || []).length, 6);
+  $('tiles').classList.toggle('many', (C.tiles || []).length > 4);
+  const tileEls = (C.tiles || []).slice(0, 6).map(t => {
+    const b = document.createElement('button');
+    b.className = 'tile';
+    b.innerHTML = (ICONS[t.icon] || ICONS.church) + '<b></b>';
+    b.addEventListener('click', () => openTile(t));
+    $('tiles').appendChild(b);
+    return { el: b, t };
+  });
+
+  // ------------------------------------------------------------------ drawing
+  function render(){
+    const l = L();
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
+    const church = (lang === 'ar' && C.churchName_ar) || C.churchName || 'St. Peter, Seal of the Martyrs';
+    $('church').textContent = church;
+    document.querySelectorAll('[data-t]').forEach(e => e.textContent = l[e.dataset.t] ?? '');
+    document.querySelectorAll('.tvname').forEach(e => e.textContent = TV);
+    const pin = String(C.airplayPin || '').trim();
+    $('apPin').hidden = !pin;
+    $('apPin').innerHTML = pin ? esc(l.apPin) + ' <b class="name" dir="ltr">' + esc(pin) + '</b>' : '';
+    $('langBtn').textContent = l.langBtn;
+    drawWifiBtn();
+    $('langBtn').className = 'pill' + (lang === 'en' ? ' ar' : '');
+    tileEls.forEach(({el, t}) => el.querySelector('b').textContent = (lang === 'ar' && t.title_ar) || t.title);
+    tick();
+  }
+
+  // One quiet line: the date, the Coptic date, and a feast or fast if there is one
+  function tick(){
+    const l = L(), d = new Date();
+    const num = n => n.toLocaleString(l.locale, { useGrouping: false });
+    const time = d.toLocaleTimeString(l.locale, { hour: 'numeric', minute: '2-digit' });
+    document.querySelectorAll('.clock').forEach(e => e.textContent = time);
+    const c = window.ChurchCalendar.info(d);
+    const parts = [esc(d.toLocaleDateString(l.locale, { weekday: 'long', month: 'long', day: 'numeric' })),
+                   esc(num(c.coptic.day) + ' ' + c.monthName(lang))];
+    const special = c.feast || (c.fastSeason ? c.season : null);
+    if (special) parts.push('<b>' + esc(special[lang]) + '</b>');
+    else if (c.fast) parts.push('<b>' + esc(l.fast) + '</b>');
+    $('today').innerHTML = parts.join('&ensp;·&ensp;');
+  }
+
+  // ------------------------------------------------------------------ helper calls
+  function post(path, body){
+    return fetch(HELPER + path, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body || {}) })
+      .then(r => r.json());
+  }
+  function setLang(l){
+    lang = l; try { localStorage.setItem('stpeter-lang', l); } catch (e) {}
+    render();
+  }
+  // ------------------------------------------------------------------ screens
+  const overlayIds = ['ovAirplay', 'ovReader', 'ovWindows', 'ovWifi'];
+  const show = id => $(id).classList.add('show');
+  const hideOverlays = () => overlayIds.forEach(id => $(id).classList.remove('show'));
+  const openOverlay = () => overlayIds.map($).find(o => o.classList.contains('show'));
+  const stageOpen = id => $(id).classList.contains('show');
+  let returnFocus = null;
+
+  function showStart(){
+    hideOverlays();
+    $('picker').classList.add('show');
+    $('picker').querySelectorAll('.choice')[lang === 'ar' ? 1 : 0].focus();
+  }
+  function showHome(){
+    $('picker').classList.remove('show');
+    tileEls[0] && tileEls[0].el.focus();
+    refreshNet().then(n => {
+      if (n && n.wifi && !n.connected && !n.wired && !wfAutoOpened && !openOverlay() && !stageOpen('picker')) {
+        wfAutoOpened = true; returnFocus = tileEls[0] && tileEls[0].el; openWifi();
+      }
+    });
+  }
+  function openTile(t){
+    returnFocus = document.activeElement;
+    if (t.action === 'airplay') { show('ovAirplay'); return focusFirstIn($('ovAirplay')); }
+    if (t.action === 'copticreader') { show('ovReader'); return $('crWin').focus(); }
+    if (t.action === 'windows') return openWindows();
+    // pages that come with St. Peter OS (like the whiteboard) are told the language
+    if (t.url) location.href = /^[a-z]+:/i.test(t.url) ? t.url : t.url + (t.url.includes('?') ? '&' : '?') + 'lang=' + lang;
+  }
+  function closeOverlay(){
+    const ov = openOverlay(); if (!ov) return;
+    if ((ov.id === 'ovWindows' && winBusy) || (ov.id === 'ovWifi' && wfBusy)) return;
+    if (ov.id === 'ovWindows') { stopWinTimer(); winMode = null; }
+    ov.classList.remove('show');
+    const back = returnFocus; returnFocus = null;
+    if (back && document.contains(back) && focusables(layer()).includes(back)) back.focus();
+    else focusFirstIn(layer());
+  }
+  function focusFirstIn(root){ const f = focusables(root)[0]; if (f) f.focus(); return !!f; }
+
+  document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeOverlay));
+  overlayIds.forEach(id => $(id).addEventListener('click', e => { if (e.target === $(id)) closeOverlay(); }));
+  $('langBtn').addEventListener('click', () => setLang(lang === 'ar' ? 'en' : 'ar'));
+  $('picker').querySelectorAll('.choice').forEach(b => b.addEventListener('click', () => { setLang(b.dataset.lang); showHome(); }));
+
+  // ------------------------------------------------------------------ Windows
+  // Three cases: Windows runs in a virtual machine here ("vm"), Windows is on its own drive and the
+  // TV restarts into it ("native"), or Windows isn't set up yet ("setup": insert media → install).
+  let winBusy = false, winTimer = null, winMode = null, winPick = null;
+  const DISK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></svg>';
+  const STICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 2h6v6H9z"/><path d="M7 8h10v9a5 5 0 0 1-10 0z"/></svg>';
+  function winUI(o){
+    const l = L();
+    $('winTitle').textContent = o.title; $('winLead').textContent = o.lead || '';
+    $('winBack').textContent = o.back || '';
+    $('winMsg').textContent = o.msg || ''; $('winMsg').className = o.good ? 'small' : 'warn';
+    $('winWait').hidden = !o.wait; $('winWait').textContent = o.wait || '';
+    $('winBar').hidden = o.percent == null; $('winBarFill').style.width = (o.percent || 0) + '%';
+    $('winMedia').hidden = !o.media;
+    $('winGo').hidden = !o.go; $('winGo').textContent = o.go || ''; $('winGo').disabled = !!o.goOff;
+    $('winCancel').textContent = o.cancel || l.cancel;
+  }
+  function stopWinTimer(){ clearTimeout(winTimer); winTimer = null; }
+  async function winInfo(){ return (await fetch(HELPER + '/windows/info')).json(); }
+
+  async function openWindows(){
+    stopWinTimer(); winPick = null; winBusy = false;
+    winUI({ title: L().winTitle, wait: '…' }); show('ovWindows'); $('winCancel').focus();
+    let info;
+    try { info = await winInfo(); } catch (e) { return winUI({ title: L().winTitle, msg: L().winHelper }); }
+    paintWindows(info);
+  }
+  function paintWindows(info){
+    const l = L();
+    winMode = info.mode;
+    if (info.installing) return paintInstalling(info);
+    if (info.mode === 'native') {
+      winUI({ title: l.winTitle, lead: l.winLead, go: l.winGo, back: l.winBack }); return $('winGo').focus();
+    }
+    if (info.installed) {
+      winUI({ title: l.winTitle, lead: l.vmLead, go: l.winGo, back: l.vmBack }); return $('winGo').focus();
+    }
+    // not set up yet: wait for installation media
+    winMode = 'setup';
+    const err = info.error === 'no-efisys' ? l.errEfisys : info.error ? l.errFailed : '';
+    if (info.kvm === false) return winUI({ title: l.setTitle, msg: l.setNoKvm, cancel: l.close });
+    winUI({ title: l.setTitle, lead: l.setLead, wait: l.setLooking, msg: err, go: l.setGo, goOff: true, back: l.setNote, media: true });
+    $('winMedia').innerHTML = '';
+    lookForMedia();
+  }
+  async function lookForMedia(){
+    if (!$('ovWindows').classList.contains('show') || winMode === null) return;
+    let r = null;
+    try { r = await post('/windows/media'); } catch (e) {}
+    if (!$('ovWindows').classList.contains('show')) return;
+    const media = (r && r.media) || [], box = $('winMedia'), l = L();
+    const had = box.querySelectorAll('.medium').length;
+    box.innerHTML = '';
+    media.forEach((m, i) => {
+      const b = document.createElement('button'); b.className = 'medium' + (winPick && winPick.path === m.path ? ' on' : '');
+      b.innerHTML = (m.kind === 'iso' ? DISK : STICK) + '<div><b></b><span></span></div>';
+      b.querySelector('b').textContent = m.kind === 'iso' ? m.name : l.setUsb;
+      b.querySelector('span').textContent = fill(l.setOn, { d: m.source });
+      b.addEventListener('click', () => { winPick = m; box.querySelectorAll('.medium').forEach(x => x.classList.toggle('on', x === b)); $('winGo').disabled = false; $('winGo').focus(); });
+      box.appendChild(b);
+    });
+    if (media.length && !winPick) { winPick = media[0]; box.firstChild.classList.add('on'); }
+    if (!media.length) winPick = null;
+    $('winGo').disabled = !winPick;
+    $('winWait').hidden = !!media.length;
+    if (media.length) { $('winLead').textContent = l.setFound; if (!had) $('winGo').focus(); }
+    else $('winLead').textContent = l.setLead;
+    winTimer = setTimeout(lookForMedia, 4000);
+  }
+  function paintInstalling(info){
+    const l = L(), steps = { copy: l.instCopy, install: l.instInstall, configure: l.instConfigure, finish: l.instFinish };
+    winUI({ title: l.instTitle, lead: steps[info.phase] || l.instInstall, percent: info.percent || 2,
+            msg: info.phase && info.phase !== 'copy' ? l.instUnplug : '', good: true, back: l.instKeep, cancel: l.close });
+    stopWinTimer();
+    winTimer = setTimeout(async () => {
+      if (!$('ovWindows').classList.contains('show')) return;
+      let i; try { i = await winInfo(); } catch (e) { return; }
+      if (i.installed && !i.installing) {
+        winUI({ title: l.instDone, lead: l.vmLead, go: l.winGo, back: l.vmBack, percent: 100 }); winMode = 'vm'; return $('winGo').focus();
+      }
+      paintWindows(i);
+    }, 5000);
+  }
+  $('winCancel').addEventListener('click', () => { stopWinTimer(); winMode = null; closeOverlay(); });
+  $('winGo').addEventListener('click', async () => {
+    if (winBusy) return;
+    const l = L();
+    if (winMode === 'setup') {
+      if (!winPick) return;
+      stopWinTimer(); winBusy = true;
+      let r = null; try { r = await post('/windows/install', { path: winPick.path }); } catch (e) {}
+      winBusy = false;
+      if (!r || !r.ok) return winUI({ title: l.setTitle, msg: r && r.error === 'no-kvm' ? l.setNoKvm : l.errFailed, cancel: l.close });
+      return paintInstalling({ phase: 'copy', percent: 2 });
+    }
+    winBusy = true;
+    $('winMsg').className = 'small';
+    $('winMsg').textContent = winMode === 'native' ? l.winWait : l.vmStarting;
+    $('winGo').disabled = $('winCancel').disabled = true;
+    let r = null;
+    try { r = await post('/windows/open'); } catch (e) {}
+    winBusy = false; $('winGo').disabled = $('winCancel').disabled = false;
+    if (r && r.ok && winMode !== 'native') { setTimeout(closeOverlay, r.starting ? 8000 : 1500); return; }
+    if (r && r.ok) return;                                   // the PC is restarting into Windows
+    $('winMsg').className = 'warn'; $('winMsg').textContent = l.winHelper; $('winCancel').focus();
+  });
+  $('crWin').addEventListener('click', () => { $('ovReader').classList.remove('show'); openWindows(); });
+
+  // ------------------------------------------------------------------ Wi-Fi
+  const WIFI_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.3a9.5 9.5 0 0 1 13 0M8.6 15.6a5 5 0 0 1 6.8 0"/><circle cx="12" cy="19" r="1.3" fill="currentColor"/></svg>';
+  const LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>';
+  const bars = n => '<svg viewBox="0 0 24 24" fill="currentColor">' + [0,1,2,3].map(i =>
+      `<rect x="${3 + i * 5}" y="${17 - i * 4}" width="3.4" height="${4 + i * 4}" rx="1" opacity="${n > i * 25 ? 1 : .25}"/>`).join('') + '</svg>';
+  let net = null;                 // last status from the helper: {wifi, connected, ssid, wired}
+  let wfTarget = null, wfBusy = false, wfAutoOpened = false;
+
+  function drawWifiBtn(){
+    const l = L(), b = $('wifiBtn');
+    const label = !net ? '' : net.connected && net.ssid ? net.ssid : net.wired ? l.wfBtnWired : l.wfBtnOff;
+    b.hidden = !net || (!net.wifi && !net.wired);
+    b.classList.toggle('off', !!net && !net.connected && !net.wired);
+    b.innerHTML = WIFI_ICON + '<span></span>';
+    b.querySelector('span').textContent = label;
+  }
+  async function refreshNet(){
+    try { net = await (await fetch(HELPER + '/wifi')).json(); } catch (e) { net = null; }
+    drawWifiBtn();
+    return net;
+  }
+  function wfMsg(text, good){ $('wfMsg').textContent = text || ''; $('wfMsg').className = good ? 'ok' : 'warn'; }
+  function wfShowPick(){ $('wfPass').hidden = true; $('wfPick').hidden = false; }
+  function wfStateLine(){
+    const l = L();
+    $('wfState').textContent = !net ? '' : net.connected && net.ssid ? fill(l.wfOn, { ssid: net.ssid }) : net.wired ? l.wfWired : l.wfOff;
+  }
+  async function openWifi(){
+    returnFocus = returnFocus || document.activeElement;
+    wfShowPick(); wfMsg(''); show('ovWifi');
+    await refreshNet(); wfStateLine();
+    if (net && !net.wifi) { $('wfList').innerHTML = ''; wfMsg(L().wfNoCard); return $('wfScan').focus(); }
+    scanWifi();
+  }
+  async function scanWifi(){
+    const l = L(), list = $('wfList');
+    list.innerHTML = ''; wfMsg(l.wfSearching, true); $('wfScan').focus();
+    let nets;
+    try { nets = (await (await fetch(HELPER + '/wifi/scan')).json()).networks || []; }
+    catch (e) { return wfMsg(l.wfHelper); }
+    wfMsg(nets.length ? '' : l.wfNone, false);
+    nets.slice(0, 10).forEach(n => {
+      const b = document.createElement('button');
+      b.className = 'net';
+      b.innerHTML = bars(n.signal) + '<span class="nm"></span>' + (n.secure ? LOCK : '<span class="tag">' + esc(l.wfOpen) + '</span>');
+      b.querySelector('.nm').textContent = n.ssid + (n.active ? '  ✓' : '');
+      b.addEventListener('click', () => pickNet(n));
+      list.appendChild(b);
+    });
+    const first = list.querySelector('.net'); if (first) first.focus();
+  }
+  function pickNet(n){
+    wfTarget = n; wfMsg('');
+    if (!n.secure) return connectWifi('');
+    $('wfPick').hidden = true; $('wfPass').hidden = false;
+    $('wfPassLead').textContent = fill(L().wfPassFor, { ssid: n.ssid });
+    $('wfPw').value = ''; $('wfPw').type = 'password'; $('wfShow').textContent = L().wfShow;
+    $('wfPw').focus();
+  }
+  async function connectWifi(password){
+    if (wfBusy || !wfTarget) return; wfBusy = true;
+    const l = L(), ssid = wfTarget.ssid;
+    wfMsg(l.wfConnecting, true);
+    let r = null;
+    try { r = await post('/wifi/connect', { ssid, password }); } catch (e) {}
+    wfBusy = false;
+    if (r && r.ok) {
+      await refreshNet(); wfShowPick(); wfStateLine(); wfMsg('');
+      $('wfList').innerHTML = ''; return $('wfScan').focus();
+    }
+    if (r && r.error === 'password' && wfTarget.secure) { wfMsg(l.wfBad); $('wfPw').select(); return $('wfPw').focus(); }
+    wfMsg(r ? fill(l.wfFail, { ssid }) : l.wfHelper);
+    if (!$('wfPass').hidden) $('wfPw').focus(); else $('wfScan').focus();
+  }
+  $('wifiBtn').addEventListener('click', () => { returnFocus = document.activeElement; openWifi(); });
+  $('wfScan').addEventListener('click', scanWifi);
+  $('wfBack').addEventListener('click', () => { wfShowPick(); wfMsg(''); focusFirstIn($('wfList')) || $('wfScan').focus(); });
+  $('wfGo').addEventListener('click', () => connectWifi($('wfPw').value));
+  $('wfPw').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); connectWifi($('wfPw').value); } });
+  $('wfShow').addEventListener('click', () => {
+    const p = $('wfPw'), hidden = p.type === 'password';
+    p.type = hidden ? 'text' : 'password'; $('wfShow').textContent = hidden ? L().wfHide : L().wfShow; p.focus();
+  });
+  setInterval(refreshNet, 30000);
+
+  // ------------------------------------------------------------------ updates
+  // The TV checks GitHub at every start-up (bin/stpeter-update). The home screen shows a small notice
+  // while an update installs, tells the helper it's being looked at (an update restarts the screen only
+  // then), and confirms that this version's home screen works (otherwise the TV goes back by itself).
+  const VER = window.STPETER_VERSION || '';
+  let upAsked = 0;
+  if (VER) post('/update/confirm', { version: VER }).catch(() => {});
+  async function pollUpdate(){
+    let st = null;
+    try { st = await (await fetch(HELPER + '/update/status')).json(); } catch (e) {}
+    const l = L(), t = $('updToast');
+    $('upVer').textContent = fill(l.upVer, { v: (st && st.installed) || VER || '?' });
+    const s = st ? st.state : '';
+    const toast = s === 'downloading' || s === 'installing' ? l.upGetting : s === 'restarting' ? l.upRestart
+                : (s === 'updated' && st.version !== VER && Date.now() / 1000 - st.time < 120) ? l.upDone : '';
+    t.textContent = toast; t.hidden = !toast;
+    if (upAsked && st && st.time >= upAsked && s !== 'checking') {
+      $('upMsg').textContent = s === 'ok' ? l.upOk : s === 'offline' ? l.upOffline : s === 'error' ? l.upErr : '';
+      if (['ok', 'offline', 'error', 'updated', 'restarting', 'off'].includes(s)) upAsked = 0;
+    }
+  }
+  $('upCheck').addEventListener('click', async () => {
+    $('upMsg').textContent = L().upChecking; upAsked = Math.floor(Date.now() / 1000) - 2;
+    try { await post('/update/check'); } catch (e) {}
+    setTimeout(pollUpdate, 1500);
+  });
+  pollUpdate(); setInterval(pollUpdate, 5000);
+
+  // ------------------------------------------------------------------ remote control: arrows move to what's visually in that direction
+  function layer(){ return openOverlay() || (stageOpen('picker') && $('picker')) || $('home'); }
+  function focusables(root){
+    return [...root.querySelectorAll('button, input')].filter(el => {
+      if (el.disabled) return false;
+      const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0;
+    });
+  }
+  function move(dir){
+    const items = focusables(layer()), cur = document.activeElement;
+    if (!items.includes(cur)) { items[0] && items[0].focus(); return; }
+    const a = cur.getBoundingClientRect(), ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+    let best = null, bestScore = Infinity;
+    for (const el of items) {
+      if (el === cur) continue;
+      const b = el.getBoundingClientRect(), dx = b.left + b.width / 2 - ax, dy = b.top + b.height / 2 - ay;
+      let gap, side;
+      if (dir === 'ArrowRight') { if (dx <= 4) continue; gap = Math.max(0, b.left - a.right); side = Math.abs(dy); }
+      if (dir === 'ArrowLeft')  { if (dx >= -4) continue; gap = Math.max(0, a.left - b.right); side = Math.abs(dy); }
+      if (dir === 'ArrowDown')  { if (dy <= 4) continue; gap = Math.max(0, b.top - a.bottom); side = Math.abs(dx); }
+      if (dir === 'ArrowUp')    { if (dy >= -4) continue; gap = Math.max(0, a.top - b.bottom); side = Math.abs(dx); }
+      const score = gap + side * 2;
+      if (score < bestScore) { bestScore = score; best = el; }
+    }
+    if (best) best.focus();
+  }
+  document.addEventListener('keydown', e => {
+    const k = e.key;
+    if (k === 'Escape' || k === 'BrowserBack' || (k === 'Backspace' && document.activeElement.tagName !== 'INPUT')) {
+      if (openOverlay()) { e.preventDefault(); return closeOverlay(); }
+      return;
+    }
+    if (!k.startsWith('Arrow')) return;
+    if (document.activeElement.tagName === 'INPUT' && (k === 'ArrowLeft' || k === 'ArrowRight')) return;
+    e.preventDefault(); move(k);
+  });
+  document.addEventListener('contextmenu', e => e.preventDefault());
+
+  // ------------------------------------------------------------------ start
+  render();
+  setInterval(tick, 10000);
+  // (the TV box opens this page with #start only on its first launch after power-on)
+  if (C.askLanguageAtStartup !== false && location.hash === '#start') { history.replaceState(null, '', location.pathname); showStart(); }
+  else showHome();
+})();
+</script>
+</body>
+</html>

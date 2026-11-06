@@ -1,0 +1,16 @@
+[Unit]
+Description=St. Peter OS USB installer
+After=basic.target systemd-udev-settle.service
+Wants=systemd-udev-settle.service
+ConditionKernelCommandLine=stpeter.install
+
+[Service]
+Type=oneshot
+ExecStart=/opt/stpeter/installer/stpeter-install
+Environment=TERM=linux
+StandardInput=tty-force
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes

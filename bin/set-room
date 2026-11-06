@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""St. Peter OS: give this PC its classroom name and AirPlay code.
+
+  set-room ROOT "St. Peter - Room 1" 4821 stpeter-room1
+
+ROOT is "/" for this PC, or the mount point of a system being installed.
+Writes /etc/stpeter.conf (read by the AirPlay receiver), the home screen's room.js,
+and the network name (hostname).
+"""
+import json, os, re, shlex, sys
+
+if len(sys.argv) != 5:
+    sys.exit(__doc__)
+root, name, pin, host = sys.argv[1:]
+if pin and not re.fullmatch(r"\d{4}", pin):
+    sys.exit("The AirPlay code must be 4 digits (or empty for none).")
+host = re.sub(r"[^a-z0-9-]+", "-", host.lower()).strip("-")[:63] or "stpeter-tv"
+p = lambda rel: os.path.join(root, rel.lstrip("/"))
+
+with open(p("/etc/stpeter.conf"), "w") as f:
+    f.write("# This classroom's settings (written by the St. Peter installer)\n")
+    f.write(f"TV_NAME={shlex.quote(name)}\nAIRPLAY_PIN={shlex.quote(pin)}\nHOSTNAME={shlex.quote(host)}\n")
+
+with open(p("/opt/stpeter/homescreen/room.js"), "w", encoding="utf-8") as f:
+    f.write("// This classroom's name and AirPlay code (written by the St. Peter installer)\n")
+    f.write("window.STPETER_ROOM = " + json.dumps({"tvName": name, "airplayPin": pin}, ensure_ascii=False) + ";\n")
+
+with open(p("/etc/hostname"), "w") as f:
+    f.write(host + "\n")
+hosts = p("/etc/hosts")
+lines = open(hosts).read().splitlines() if os.path.exists(hosts) else ["127.0.0.1\tlocalhost"]
+lines = [l for l in lines if not l.startswith("127.0.1.1")] + [f"127.0.1.1\t{host}"]
+with open(hosts, "w") as f:
+    f.write("\n".join(lines) + "\n")
+print(f"Room set: {name}  (AirPlay code: {pin or 'none'}, network name: {host})")
